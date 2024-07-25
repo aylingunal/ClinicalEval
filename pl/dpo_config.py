@@ -7,6 +7,7 @@ class DPOConfig:
     batch_size: Optional[int] = None
     output_dir: Optional[str] = None
     loss_method: Optional[str] = None
+    num_epochs: Optional[int] = None
 
 
 

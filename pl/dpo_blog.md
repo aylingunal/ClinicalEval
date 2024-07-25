@@ -5,7 +5,7 @@ DPO is covered relatively well online and there are a couple resources I used wh
 
 Before I get started, I'll note existing resources that helped me in my understanding:
 - the [original DPO paper](https://arxiv.org/pdf/2305.18290). It takes a couple reads to get what's fully going on, but I highly recommend it; it has all the information you need (including starter code and an additional derivation for the loss for listwise data in the appendix).
-- 
+
 
 
 
