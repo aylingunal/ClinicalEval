@@ -1,12 +1,14 @@
 import json
 import pandas as pd
+import logging
+logging.basicConfig(level=logging.INFO, 
+                    format='%(levelname)s - %(message)s')
 
-ANNOTATIONS_FNAME = "/home/agunal/scratch/goldkind-clinical-ai/tmpdir/annotations/partial_annots_7_18.csv"
-ANNOTATIONS_DICT_FNAME = "/home/agunal/scratch/goldkind-clinical-ai/tmpdir/annotations/notes_id_maps.json"
+ANNOTATIONS_FNAME = "/home/agunal/ClinicalEval/data/partial_7_22.csv"
+ANNOTATIONS_DICT_FNAME = "/home/agunal/ClinicalEval/data/notes_id_maps.json"
 
 def get_rankings(row_obj):
     results = {}
-
     symptom_rank_note0 = label_to_rank(row_obj[1]['Accuracy of Symptoms\nPlease rank the notes in order of preference, with 1 having the most accurate summary of symptoms, and 3 with the least. [Note 0]'])
     symptom_rank_note1 = label_to_rank(row_obj[1]['Accuracy of Symptoms\nPlease rank the notes in order of preference, with 1 having the most accurate summary of symptoms, and 3 with the least. [Note 1]'])
     symptom_rank_note2 = label_to_rank(row_obj[1]['Accuracy of Symptoms\nPlease rank the notes in order of preference, with 1 having the most accurate summary of symptoms, and 3 with the least. [Note 2]'])
@@ -47,23 +49,31 @@ def read_annots(annots_fname=ANNOTATIONS_FNAME):
     results = {}
     df = pd.read_csv(annots_fname)
     df = rm_duplicate_annots(df)
-    print(df.head(5))
 
     for row in df.iterrows():
         ranks_dict = get_rankings(row)
         ranks_dict = swap_keys_vals(ranks_dict)
         transcript = row[1]['Transcript ']
+        # schizophrenia is misspelled in the annotator form lol so just debugging
+        if 'schizphrenia' in transcript:
+            transcript = transcript.replace('schizphrenia','schizophrenia')
         if transcript not in results.keys():
             results[transcript] = {'symptom':[ranks_dict['symptom']],
                                    'stressor':[ranks_dict['stressor']]}
         else:
             results[transcript]['symptom'].append(ranks_dict['symptom'])
             results[transcript]['stressor'].append(ranks_dict['stressor'])
-    
-    print(len(results))      
+    return results
 
-read_annots()
+def main():
+    logging.info("Processing and formatting annotations...")
+    format_annots = read_annots()
+    import json
+    logging.info("Writing formatted annotations to format_annots.json...")
+    with open('/home/agunal/ClinicalEval/data/format_annots.json','w+') as outf:
+        json.dump(format_annots,outf)
 
-print('blah')
+if __name__ == '__main__':
+    main()
 
 
