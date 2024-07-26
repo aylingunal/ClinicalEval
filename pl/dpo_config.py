@@ -8,6 +8,7 @@ class DPOConfig:
     output_dir: Optional[str] = None
     loss_method: Optional[str] = None
     num_epochs: Optional[int] = None
+    lr: Optional[float] = None
 
 
 

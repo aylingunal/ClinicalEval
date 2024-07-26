@@ -1,0 +1,1 @@
+rm -rf "/home/agunal/scratch/goldkind-clinical-ai/tmpdir/job_outputs"/*

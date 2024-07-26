@@ -3,7 +3,6 @@
 # my modules
 from data_utils import *
 from dpo_config import *
-from dpo_utils import *
 from dpo_trainer import *
 
 # libraries 
@@ -20,14 +19,18 @@ login(token=HF_TOKEN)
 # logistics
 config = DPOConfig()
 config.model_names=["mistralai/Mistral-7B-v0.3",
-                    "meta-llama/Meta-Llama-3-8B"]
+                    #"meta-llama/Meta-Llama-3-8B",
+                    ]
 config.tokenizer_names=["mistralai/Mistral-7B-v0.3",
-                        "meta-llama/Meta-Llama-3-8B"]
+                      # "meta-llama/Meta-Llama-3-8B",
+                        ]
 config.output_dir="/home/agunal/scratch/goldkind-clinical-ai/tmpdir/job_outputs"
 # training details
+config.train_method="individual"
 config.loss_method="individual_loss"
 config.num_epochs=5
 config.batch_size=4
+config.lr=.01
 
 
 def main():
@@ -43,7 +46,11 @@ def main():
     dpo_trainer = DPOTrainer(config,data_dict)
     logging.info("loading evaluator models...")
     dpo_trainer.load_models()
-    dpo_trainer._train()
+
+    if config.train_method == "individual":
+        logging.info("training models individually...")
+        for idx,model_name in enumerate(config.model_names):
+            dpo_trainer._train_individual(idx)
 
 
 if __name__ == "__main__":
