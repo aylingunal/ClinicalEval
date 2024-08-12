@@ -71,17 +71,14 @@ class AnnotEmbedModel():
 
         self.sbert_model = CompressedSentBERT()
 
-    # initialize main model that will construct annotator embeddings
+    # initialize main model that will construct annotator embeddings;
+    # this assumes data has been processed
     def init_embedding_model(self):
-        print('type x train: ',type(self.x_train[0]))
-        input_dim = int(self.x_train[0].size())
-        output_dim = int(self.y_train[0].size())
-        print('dims: ',input_dim,output_dim)
-        self.model = EmbedNN(input_size=input_dim,
+        self.model = EmbedNN(input_size=self.input_dim,
                              hidden_size=self.hidden_dim,
-                             output_size=output_dim)
+                             output_size=self.output_dim)
 
-    def load_data(self):
+    def process_data(self):
         logging.info("loading scores, ranks, and notes...")
         # read in annotations
         with open(ANNOT_SCORES_FNAME,'r') as inf:
@@ -115,11 +112,8 @@ class AnnotEmbedModel():
 
             full_arr = torch.cat(notes_arrs)
             notes[transcript_folname] = full_arr
-        return scores, ranks, notes
 
-    def process_data(self):
         logging.info("processing data into inputs (annotid,catid,notes_embs) and outputs (ranks,scores)...")
-        scores, ranks, notes = self.load_data()
         # format for training
         x_train = []
         y_train = []
@@ -130,7 +124,7 @@ class AnnotEmbedModel():
         self.le_cats.fit(['stressor','symptom','accuracy','readability'])
         for annot_id in scores.keys():
             for transcript_id in scores[annot_id].keys():
-                if 'anxiety-transcript436' not in transcript_id and 'anxiety-transcript58' not in transcript_id:
+                if transcript_id in legal_transcripts:
                     for cat in scores[annot_id][transcript_id].keys():
                         # inputs
                         annot_id_le = self.le_annot.transform([annot_id])[0]
@@ -148,9 +142,23 @@ class AnnotEmbedModel():
                         y_inst = torch.cat([ranks_emb,scores_emb])
                         x_train.append(x_inst)
                         y_train.append(y_inst)
+        
+        # set dims
+        self.input_dim = len(x_train[0])
+        self.output_dim = len(y_train[0])
 
-        self.x_train = x_train
-        self.y_train = y_train
+        # convert data to dataloader
+        class CustomAnnotDataset(Dataset):
+            def __init__(self, x_train, y_train):
+                self.x_train = x_train
+                self.y_train = y_train
+            def __len__(self):
+                return len(self.x_train)
+            def __getitem__(self,idx):
+                return self.x_train[idx], self.y_train[idx]
+        
+        dat_train = CustomAnnotDataset(x_train=x_train,y_train=y_train)
+        self.dat_train = DataLoader(dat_train, batch_size=32, shuffle=True)
 
     def train(self):
         logging.info("training the model...")
@@ -159,15 +167,17 @@ class AnnotEmbedModel():
         # training loop
         num_epochs = 50
         for epoch in range(num_epochs):
-            # forward pass
-            outputs, _ = self.model(self.x_train)
-            loss = criterion(outputs,self.y_train)
-            # backprop and optimize
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            if (epoch+1) % 10 == 0:
-                print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+            for batch in self.dat_train:
+                # each batch is a tuple where first element is list of x_, second element is list of y_
+                # forward pass
+                outputs, _ = self.model(batch[0])
+                loss = criterion(outputs,batch[1])
+                # backprop
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                if (epoch+1) % 10 == 0:
+                    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
 
     # this assumes the embedding model has been fully trained
     def get_embs(self):
@@ -208,11 +218,9 @@ def swap_keys_vals(dict_in):
         dict_out[val] = key
     return dict_out
 
-
 def main():
     annot_model = AnnotEmbedModel()
     annot_model.run()
-
 
    # annotator_embeddings = annot_model.get_embs()
 
