@@ -58,7 +58,7 @@ class AnnotEmbedModel():
                 train_dataset = load_dataset("sentence-transformers/all-nli", "pair-score", split="train")
                 nli_sentences = train_dataset["sentence1"] + train_dataset["sentence2"]
                 random.shuffle(nli_sentences)
-                pca_train_sentences = nli_sentences[0:25]
+                pca_train_sentences = nli_sentences[0:20000]
                 train_embeddings = self.model.encode(pca_train_sentences, convert_to_numpy=True)
                 pca = PCA(n_components=sent_emb_dim)
                 pca.fit(train_embeddings)
