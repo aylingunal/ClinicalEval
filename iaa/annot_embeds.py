@@ -112,8 +112,11 @@ class AnnotEmbedModel():
 
             full_arr = torch.cat(notes_arrs)
             notes[transcript_folname] = full_arr
+        
 
         logging.info("processing data into inputs (annotid,catid,notes_embs) and outputs (ranks,scores)...")
+        # grab data per annotator, will help later when extracting embeddings from trained model
+        annotator_inputs = {}
         # format for training
         x_train = []
         y_train = []
@@ -123,6 +126,7 @@ class AnnotEmbedModel():
         self.le_cats = LabelEncoder()
         self.le_cats.fit(['stressor','symptom','accuracy','readability'])
         for annot_id in scores.keys():
+            annotator_inputs[annot_id] = []
             for transcript_id in scores[annot_id].keys():
                 if transcript_id in legal_transcripts:
                     for cat in scores[annot_id][transcript_id].keys():
@@ -142,10 +146,14 @@ class AnnotEmbedModel():
                         y_inst = torch.cat([ranks_emb,scores_emb])
                         x_train.append(x_inst)
                         y_train.append(y_inst)
+                        annotator_inputs[annot_id].append(x_inst)
         
         # set dims
         self.input_dim = len(x_train[0])
         self.output_dim = len(y_train[0])
+
+        # save for later
+        self.annotator_inputs = annotator_inputs
 
         # convert data to dataloader
         class CustomAnnotDataset(Dataset):
@@ -163,7 +171,7 @@ class AnnotEmbedModel():
     def train(self):
         logging.info("training the model...")
         criterion = nn.MSELoss()
-        optimizer = optim.SGD(self.model.parameters(), lr=0.01)
+        optimizer = optim.AdamW(self.model.parameters(), lr=0.01)
         # training loop
         num_epochs = 50
         for epoch in range(num_epochs):
@@ -183,32 +191,36 @@ class AnnotEmbedModel():
     def get_embs(self):
         logging.info("retrieving annotator embeddings...")
         annotator_embeddings = {}
-        scores, ranks, notes = self.load_data()
-        for annotator_id in scores.keys():
-            cur_inputs = []
-            for transcript_id in scores[annotator_id].keys():
-                for cat in scores[annotator_id][transcript_id].keys():
-                    annotator_id_ = self.le_annot.transform([annotator_id])[0]
-                    cat_id_ = self.le_cats.transform([cat])[0]
-                    input = torch.Tensor([annotator_id_,cat_id_,notes[transcript_id]])
-                    cur_inputs.append(input)
+        for annotator_id in self.annotator_inputs.keys():
             # grab all of one annotator's embeddings
-            cur_embs = []
-            for input in cur_inputs:
-                with torch.no_grad():
-                    _, embedding = self.model(input)
-                    cur_embs.append(embedding)
+            inputs = torch.stack(self.annotator_inputs[annotator_id])
+            with torch.no_grad():
+                _, embeddings = self.model(inputs)
             # aggregate and normalize
-            aggregate_emb = np.sum(cur_embs,axis=0)
-            norm_emb = np.divide(aggregate_emb,len(cur_embs))
-            annotator_embeddings[annotator_id] = norm_emb
-        return annotator_embeddings
+            aggregate_emb = torch.sum(embeddings,dim=0)
+            norm_emb = torch.div(aggregate_emb,len(embeddings))
+            annotator_embeddings[annotator_id] = list(norm_emb.numpy())
+
+        import pandas as pd
+        df = pd.DataFrame()
+        annot_ids = []
+        embs = []
+        for annot_id in annotator_embeddings.keys():
+            annot_ids.append(annot_id)
+            embs.append(annotator_embeddings[annot_id])
+        
+        logging.info("writing final embeddings...")
+        df["annotator_id"] = annot_ids
+        df["embedding"] = embs
+        df.to_parquet("annot_embeds.parquet")
+
 
     def run(self):
         self.init_sent_bert()
         self.process_data()
         self.init_embedding_model()
         self.train()
+        self.get_embs()
 
 # helper –– swap keys and values in a dictionary
 def swap_keys_vals(dict_in):
@@ -221,8 +233,6 @@ def swap_keys_vals(dict_in):
 def main():
     annot_model = AnnotEmbedModel()
     annot_model.run()
-
-   # annotator_embeddings = annot_model.get_embs()
 
 if __name__ == '__main__':
     main()
