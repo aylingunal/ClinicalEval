@@ -19,10 +19,14 @@ login(token=HF_TOKEN)
 # logistics
 config = DPOConfig()
 config.model_names=["mistralai/Mistral-7B-v0.3",
-                    #"meta-llama/Meta-Llama-3-8B",
+                    "meta-llama/Meta-Llama-3-8B",
+                    "google/gemma-7b",
+                    "microsoft/Phi-3-small-128k-instruct"
                     ]
 config.tokenizer_names=["mistralai/Mistral-7B-v0.3",
-                      # "meta-llama/Meta-Llama-3-8B",
+                        "meta-llama/Meta-Llama-3-8B",
+                        "google/gemma-7b",
+                        "microsoft/Phi-3-small-128k-instruct"
                         ]
 config.output_dir="/home/agunal/scratch/goldkind-clinical-ai/tmpdir/job_outputs"
 # training details

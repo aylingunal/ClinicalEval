@@ -11,8 +11,8 @@ import pandas as pd
 import random
 
 ANNOTS_FNAME = "/home/agunal/ClinicalEval/data/format_annots.json"
-NOTES_FOLNAME = "/home/agunal/ClinicalEval/data/synth_notes/"
-TRANSCRIPTS_FOLNAME = "/home/agunal/ClinicalEval/data/transcripts/"
+NOTES_FOLNAME = "/home/agunal/scratch/goldkind-clinical-ai/tmpdir/data/synth_notes/"
+TRANSCRIPTS_FOLNAME = "/home/agunal/scratch/goldkind-clinical-ai/tmpdir/data/transcripts/"
 
 # create Dataset based object (prep for Dataloader)
 class PLData(Dataset):
@@ -32,7 +32,6 @@ class PLData(Dataset):
     def __len__(self):
         return len(self.annots.keys())
 
-    # want to return 1 data sample, AKA: (transcript, note1, note2, note3, ranking_symptom, ranking_stressor) TODO might want to update rankings later
     def __getitem__(self, idx):
         # get transcript
         transcript_name = self.annots_ids[idx]
@@ -47,15 +46,13 @@ class PLData(Dataset):
             ret_note2 = ' '.join(inf.readlines())
         # get rankings
         symptom_ranking = combine_rankings(self.annots[transcript_name]['symptom'])
-        stressor_ranking = combine_rankings(self.annots[transcript_name]['stressor'])
-        ret_rank1_symptom = symptom_ranking['1'] 
-        ret_rank2_symptom = symptom_ranking['2']
-        ret_rank3_symptom = symptom_ranking['3']
-        ret_rank1_stressor = stressor_ranking['1']
-        ret_rank2_stressor = stressor_ranking['2']
-        ret_rank3_stressor = stressor_ranking['3']
-
-        return ret_transcript, ret_note0, ret_note1, ret_note2, ret_rank1_symptom, ret_rank2_symptom, ret_rank3_symptom
+        return {'transcript':ret_transcript,
+                'note0':ret_note0,
+                'note1':ret_note1,
+                'note2':ret_note2,
+                'rank1':symptom_ranking['1'],
+                'rank2':symptom_ranking['2'],
+                'rank3':symptom_ranking['3']}
 
 # rankings in the format [{"1":"note0",...},...]
 def combine_rankings(rankings,method="condorcet"):
@@ -68,7 +65,7 @@ def combine_rankings(rankings,method="condorcet"):
     df['first_preference'] = first_pref
     df['second_preference'] = second_pref
     df['third_preference'] = third_pref
-    
+
     init_results = condorcet.compute_ranks(df)
     flat_results = [item for sublist in init_results for item in sublist]
 
@@ -92,18 +89,3 @@ def sample_data(_data):
     print('SAMPLE:')
     print(item)
     return item
-
-@torch.no_grad()
-def process_input_ids(input_ids):
-
-    input_data = {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids)}
-    logits, _, _ = trainer.model(**input_data)
-
-    old_logits, _, _ = trainer.ref_model(**input_data)
-    old_logprobs = logprobs_from_logits(old_logits[:, :-1, :], input_ids[:, 1:])
-
-    logprobs = logprobs_from_logits(logits[:, :-1, :], input_ids[:, 1:])
-    entropy = entropy_from_logits(logits)
-
-    return logprobs, old_logprobs, entropy, logits
-

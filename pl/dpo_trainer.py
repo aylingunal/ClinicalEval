@@ -3,7 +3,6 @@ import torch
 import math
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-# from accelerate import Accelerator
 from typing import Optional
 import torch.nn.functional as F
 import tqdm
@@ -14,12 +13,11 @@ class DPOTrainer():
         self.policies, self.refs, self.tokenizers = [], [], []
         self.train_data = data_dict['train']
         self.eval_data = data_dict['eval']
-      #  self.accelerator = Accelerator()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # load models (policies) and maintain original copies (ref)
     def load_models(self,):
-        # don't re-load if you don't need to!!
+        # don't re-load if you don't need to!
         if len(self.policies) == 0 and len(self.refs) == 0 and len(self.tokenizers) == 0:
             for model_name in self.dpo_config.model_names:
                 pol_model = AutoModelForCausalLM.from_pretrained(model_name,
@@ -60,8 +58,6 @@ class DPOTrainer():
                 ids_note0s = tokenizer(str_note0s,return_tensors='pt').input_ids
                 ids_note1s = tokenizer(str_note1s,return_tensors='pt').input_ids
                 ids_note2s = tokenizer(str_note2s,return_tensors='pt').input_ids
-                print('ids queries: ',ids_queries)
-                print('ids notes0: ',ids_note0s)
                 # concatenate query and response tensors
                 tensors_note0 = torch.cat((ids_queries,ids_note0s),dim=-1)
                 tensors_note1 = torch.cat((ids_queries,ids_note1s),dim=-1)
