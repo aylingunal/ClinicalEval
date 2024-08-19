@@ -101,7 +101,9 @@ class DPOTrainer():
                 subprocess.run(['nvidia-smi'])
                 torch.cuda.empty_cache()
 
-                policy_logprobs = [process_logits(logits_note0),process_logits(logits_note1),process_logits(logits_note2)]
+                policy_logprobs = [process_logits(logits_note0[:, -1:, :]),
+                                   process_logits(logits_note1[:, -1:, :]),
+                                   process_logits(logits_note2[:, -1:, :])]
                 del logits_note0, logits_note1, logits_note2
                 subprocess.run(['nvidia-smi'])
 
@@ -138,34 +140,31 @@ class DPOTrainer():
                 # grab pref ranking (todo adjust for batch size > 1)
                 pref_ranking = format_pref_ranking([batch_['rank1'][0],batch_['rank2'][0],batch_['rank3'][0]])
                 loss = individual_loss_dpo(policy_logprobs,ref_logprobs,pref_ranking)
-                print('loss value: ',loss)
-                # loss = loss.detach()
-                # loss = loss.to(device="cuda")
-                # loss.backward()
-                # subprocess.run(['nvidia-smi'])
-                # self.optimizer.step()
-                # subprocess.run(['nvidia-smi'])
+                loss = loss.detach()
+                loss = loss.to(device="cuda")
+                loss.backward()
+                subprocess.run(['nvidia-smi'])
+                self.optimizer.step()
+                subprocess.run(['nvidia-smi'])
                 logging.info("done with batch!")
 
-        print('___________finished test train!___________')
+        logging.info("training complete!")
         torch.cuda.empty_cache()
         # save the policy model
         models_folname = "/home/agunal/scratch/goldkind-clinical-ai/dev/ClinicalEval/saved_models/"
         model_path = models_folname + "policy_llama8b"
         torch.save(policy,model_path)
 
-
 def format_pref_ranking(init_pr):
     res_pr = [-1,-1,-1]
     for idx,item in enumerate(init_pr):
         if '0' in item:
-            res_pr[idx] = 1
+            res_pr[idx] = 0
         if '1' in item:
-            res_pr[idx] = 2
+            res_pr[idx] = 1
         if '2' in item:
-            res_pr[idx] = 3
+            res_pr[idx] = 2
     return res_pr
-
 
 '''
 logprobs are processed before this function (i.e. logits -> logprobs -> single scalar)
@@ -174,8 +173,6 @@ params:
 pref_ranking = dictionary mapping ranks to notes (so {1:note0, ...})
 '''
 def individual_loss_dpo(policy_logprobs,ref_logprobs,pref_ranking,beta=.5):
-    print('policy logprobs: ',policy_logprobs)
-    print('ref logprobs: ',ref_logprobs)
     loss = 1.0
     # order notes by rank
     pref_ranking = sorted(pref_ranking, key=lambda x: int(x), reverse=False)
@@ -188,9 +185,7 @@ def individual_loss_dpo(policy_logprobs,ref_logprobs,pref_ranking,beta=.5):
     return loss
 
 def process_logits(logits):
-    print('logits before processing: ',logits, 'shape: ',logits.shape)
-    log_probs = torch.log(F.log_softmax(logits, dim=2))
-    agg_log_probs = log_probs.sum(dim=2)
-    print('logits after processing: ',agg_log_probs, 'shape: ',logits.shape)
+    log_probs = F.log_softmax(logits, dim=2)
+    agg_log_probs = torch.flatten(log_probs.sum(dim=2))
     return agg_log_probs
 
