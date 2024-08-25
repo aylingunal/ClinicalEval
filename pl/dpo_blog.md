@@ -29,6 +29,7 @@ Let's review the steps for DPO (note that model initialization and data collecti
 
 ### Listwise Preferences
 
+One item to note is that DPO was originally developed for pairwise preferences. Since the paper was released, subsequent papers have broached *listwise* preference data, AKA rankings over multiple items rather than simply, do humans prefer x1 to x2 or the other way around? In particular, there's the [LiPO paper](https://arxiv.org/pdf/2305.18290). 
 
 
 
