@@ -1,5 +1,5 @@
 
-''' define the various loss functions '''
+''' define the various PL loss functions '''
 
 import torch
 
@@ -10,7 +10,7 @@ params:
 pref_ranking = dictionary mapping ranks to notes (so {1:note0, ...})
 '''
 def individual_loss_dpo(policy_logprobs,ref_logprobs,pref_ranking,beta=.001):
-    loss = torch.tensor(1.0, dtype=torch.float32)#, requires_grad=True)
+    loss = torch.tensor(1.0, dtype=torch.float32)
     # order notes by rank
     pref_ranking = sorted(pref_ranking, key=lambda x: int(x), reverse=False)
     for k, rank in enumerate(pref_ranking):

@@ -92,15 +92,28 @@ class PLEvalData(Dataset):
         with open(self.notes_dirname + transcript_name + '/note2.txt','r',encoding='utf8') as inf:
             ret_note2 = ' '.join(inf.readlines())
         # get scores
-        symptom_ranking = combine_rankings(self.annots[transcript_name]['symptom'])
+        scores = combine_scores(self.annots[transcript_name]['symptom'])
 
         return {'transcript':ret_transcript,
                 'note0':ret_note0,
                 'note1':ret_note1,
                 'note2':ret_note2,
-                'rank1':symptom_ranking['1'],
-                'rank2':symptom_ranking['2'],
-                'rank3':symptom_ranking['3']}
+                'score0':scores['note0'],
+                'score1':scores['note1'],
+                'score2':scores['note2']}
+
+def combine_scores(scores,method="avg"):
+    note0 = 0.0
+    note1 = 0.0
+    note2 = 0.0
+    for item in scores:
+        note0 += float(item['note0'])
+        note1 += float(item['note1'])
+        note2 += float(item['note2'])
+    note0 /= round(float(len(scores)))
+    note1 /= round(float(len(scores)))
+    note2 /= round(float(len(scores)))
+    return {'note0':note0,'note1':note1,'note2':note2}
 
 # rankings in the format [{"1":"note0",...},...]
 def combine_rankings(rankings,method="condorcet"):
@@ -124,10 +137,13 @@ def combine_rankings(rankings,method="condorcet"):
     return results
 
 ''' load dataset to dataloader type '''
-def load_data(pldata_obj, batch_size, split=.85):
-    split_train = int(.85*len(pldata_obj))
+def load_data(pldata_obj, batch_size, split=.85, seed=123):
+    generator = torch.Generator().manual_seed(seed)
+    split_train = int(split*len(pldata_obj))
     split_eval = int(len(pldata_obj) - split_train)
-    train_dataset, eval_dataset = torch.utils.data.random_split(dataset=pldata_obj,lengths=[split_train, split_eval])
+    train_dataset, eval_dataset = torch.utils.data.random_split(dataset=pldata_obj,
+                                                                lengths=[split_train, split_eval],
+                                                                generator=generator)
     return DataLoader(train_dataset,batch_size=batch_size), DataLoader(eval_dataset,batch_size=batch_size)
 
 ''' provided dataloader object, view sample '''
