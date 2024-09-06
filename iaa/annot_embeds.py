@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
@@ -68,7 +67,6 @@ class AnnotEmbedModel():
             def forward(self,input_text):
                 original_emb = torch.Tensor(self.model.encode([input_text])[0])
                 return torch.Tensor(self.dense(original_emb))
-
         self.sbert_model = CompressedSentBERT()
 
     # initialize main model that will construct annotator embeddings;
@@ -171,7 +169,7 @@ class AnnotEmbedModel():
     def train(self):
         logging.info("training the model...")
         criterion = nn.MSELoss()
-        optimizer = optim.AdamW(self.model.parameters(), lr=0.01)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=0.01)
         # training loop
         num_epochs = 50
         for epoch in range(num_epochs):

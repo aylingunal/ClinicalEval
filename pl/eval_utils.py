@@ -14,78 +14,106 @@ class ClinicalNoteScorer(nn.Module):
         super(ClinicalNoteScorer, self).__init__()
         self.base_model = base_model
         self.num_labels = num_labels
-        self.config = base_model.config
+        self.config = self.base_model.config
         self.dropout = nn.Dropout(p=0.1)
-        self.classifier = nn.Linear(base_model.config.hidden_size, num_labels)
+        self.classifier = nn.Linear(self.config.vocab_size, num_labels)
 
-    def forward(self, input_ids, attention_mask, lbl):
-        outputs = self.base_model(input_ids=input_ids, attention_mask=attention_mask)
-        pooled_output = outputs[1]
-        pooled_output = self.dropout(pooled_output)
-        logits = self.classifier(pooled_output)
-
+    def forward(self, input_ids, attention_mask, labels):
+        # note --> unsqueeze(,0) the args if working with batch size 1 (i.e. when not wrapping w/ dataloader)
+        outputs = self.base_model(input_ids=input_ids,
+                                  attention_mask=attention_mask)
+        mean_pool = outputs.logits.mean(dim=1)
+        # dropout
+        dropped_out = self.dropout(mean_pool)
+        # grab logits per category
+        logits = self.classifier(dropped_out)
         loss = None
-        # if evaluating, None 
-        if lbl is not None:
+        # if evaluating, don't have to compute loss
+        if labels is not None:
             loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(logits.view(-1, self.num_labels), lbl.view(-1))
-
-        return SequenceClassifierOutput(loss, logits)
+            loss = loss_fct(logits,labels)
+        del outputs,mean_pool,dropped_out
+        return loss, SequenceClassifierOutput(logits)
 
 class ClinicalNotesEval():
-    def __init__(self,model,train_dl,eval_dl):
-        self.tokenizer = AutoTokenizer.from_pretrained("aegunal/ClinicalEval_llama8b")
-        self.model = AutoModelForCausalLM.from_pretrained("aegunal/ClinicalEval_llama8b")
-        self.scoring_model = ClinicalNoteScorer(self.model,num_labels=4)
-        self.train_dl = train_dl
-        self.eval_dl = eval_dl
-
-    def _train(self):
-        training_args = TrainingArguments(output_dir="test_trainer", 
-                                        #  evaluation_strategy="epoch",
-                                        num_train_epochs=5,
-                                        logging_steps=50,)
-        metric = load_metric('accuracy')
-        def compute_metrics(eval_pred):
-            predictions, labels = eval_pred
-            predictions = np.argmax(predictions, axis=1)
-            return metric.compute(predictions=predictions, references=labels) 
+    def __init__(self,model,tokenizer,train_dl,eval_dl):
+        self.tokenizer = tokenizer
+        self.scoring_model = ClinicalNoteScorer(model,num_labels=4)
+        self.train = train_dl
+        self.eval = eval_dl
     
-        trainer = Trainer(model=self.scoring_model,
-                          args=training_args,
-                          train_dataset=self.train_dl,
-                          compute_metrics=compute_metrics)
-        trainer.train()
+    def _format_data(self):
+        class TrainData():
+            def __init__(self,encodings,labels):
+                self.encodings = encodings
+                self.labels = labels
+            def __getitem__(self, idx):
+                item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
+                item['labels'] = torch.tensor(self.labels[idx])
+                return item
+            def __len__(self):
+                return len(self.labels)
 
-    def _eval(self):
+        #### train
+        note0_texts = [x['note0'] for x in self.train]
+        note1_texts = [x['note1'] for x in self.train]
+        note2_texts = [x['note2'] for x in self.train]
+        note0_scores = [x['score0'] for x in self.train]
+        note1_scores = [x['score1'] for x in self.train]
+        note2_scores = [x['score2'] for x in self.train]
+
+        note_texts = note0_texts + note1_texts + note2_texts
+        note_encs = self.tokenizer(note_texts,max_length=750,truncation=True,padding=True,return_tensors="pt")
+        note_scores = note0_scores + note1_scores + note2_scores
+    
+        from sklearn.preprocessing import LabelEncoder
+        le = LabelEncoder()
+        import math
+        note_scores = [math.floor(x) for x in note_scores] # doing this so we can include some 2s in the mix
+        le.fit(note_scores)
+        note_scores_enc = le.transform(note_scores)
+        train_dataset=TrainData(encodings=note_encs,labels=note_scores_enc)
+        #### test
+        note0_texts_test = [x['note0'] for x in self.eval]
+        note1_texts_test = [x['note1'] for x in self.eval]
+        note2_texts_test = [x['note2'] for x in self.eval]
+        note0_scores_test = [x['score0'] for x in self.eval]
+        note1_scores_test = [x['score1'] for x in self.eval]
+        note2_scores_test = [x['score2'] for x in self.eval]
+
+        note_texts_test = note0_texts_test + note1_texts_test + note2_texts_test
+        note_encs_test = self.tokenizer(note_texts_test,max_length=750,truncation=True,padding=True,return_tensors="pt")
+        note_scores_test = note0_scores_test + note1_scores_test + note2_scores_test
+    
+        note_scores_test = [math.floor(x) for x in note_scores_test] # doing this so we can include some 2s in the mix
+        note_scores_enc_test = le.transform(note_scores_test)
+        test_dataset=TrainData(encodings=note_encs_test,labels=note_scores_enc_test)
+
+        batch_size = 16
+        return DataLoader(train_dataset,batch_size=batch_size), DataLoader(test_dataset,batch_size=batch_size)
+
+    def _train_and_eval(self):
+        train_dl, test_dl = self._format_data()
+        num_epochs = 1
+        optimizer = torch.optim.AdamW(self.scoring_model.parameters(), lr=.01)
+        print('begin training classifier')
+        for epoch in range(num_epochs):
+            for batch in train_dl:
+                loss, _ = self.scoring_model.forward(input_ids=batch['input_ids'],
+                                                  attention_mask=batch['attention_mask'],
+                                                  labels=batch['labels'])
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        print('begin evaluation')
         from sklearn.metrics import accuracy_score
-        # evaluate
-        golds = []
-        preds = []
-        for batch_ in self.eval_dl:
-            # grab text items
-            ids_queries = self.tokenizer(batch_['transcript'],return_tensors='pt',max_length=self.dpo_config.tokenizer_max_len).input_ids.unsqueeze(0)
-            ids_note0s = self.tokenizer(batch_['note0'],return_tensors='pt',max_length=self.dpo_config.tokenizer_max_len).input_ids.unsqueeze(0)
-            ids_note1s = self.tokenizer(batch_['note1'],return_tensors='pt',max_length=self.dpo_config.tokenizer_max_len).input_ids.unsqueeze(0)
-            ids_note2s = self.tokenizer(batch_['note2'],return_tensors='pt',max_length=self.dpo_config.tokenizer_max_len).input_ids.unsqueeze(0)
-            tensors_note0 = torch.cat((ids_queries,ids_note0s),dim=-1)
-            tensors_note1 = torch.cat((ids_queries,ids_note1s),dim=-1)
-            tensors_note2 = torch.cat((ids_queries,ids_note2s),dim=-1)
-            # grab scores
-            gold0 = batch_['note0']
-            gold1 = batch_['note1']
-            gold2 = batch_['note2']
-            # model preds
-            pred0 = torch.argmax(self.scoring_model(input_ids=tensors_note0,
-                                                    attention_mask=torch.ones_like(tensors_note0),
-                                                    lbl=None)['logits'].squeeze(0)).item()
-            pred1 = torch.argmax(self.scoring_model(input_ids=tensors_note1,
-                                                    attention_mask=torch.ones_like(tensors_note0),
-                                                    lbl=None)['logits'].squeeze(0)).item()
-            pred2 = torch.argmax(self.scoring_model(input_ids=tensors_note2,
-                                                    attention_mask=torch.ones_like(tensors_note0),
-                                                    lbl=None)['logits'].squeeze(0)).item()
-            golds.extend([gold0,gold1,gold2])
-            preds.extend([pred0,pred1,pred2])
-
+        golds, preds = [], []
+        for batch in test_dl:
+            _, pred = self.scoring_model.forward(input_ids=batch['input_ids'],
+                                                  attention_mask=batch['attention_mask'],
+                                                  labels=None)
+            golds.append(batch['labels'])
+            preds.append(pred)
+        print('evaluation complete! accuracy: ',accuracy_score(golds,preds))
         return accuracy_score(golds,preds)
+
